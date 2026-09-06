@@ -1,0 +1,15 @@
+<CommunityApplications>
+  <Profile>
+    This repository hosts ca.bulk.unpin, a small Unraid plugin that adds
+    bulk "unpin installed apps" and "hide installed" controls to the
+    Pinned Apps view in Community Applications. It supports both the
+    stock Community Applications view and the ghzgod/unraid-modern-appstore
+    alternate view. For support or to report an issue, open a GitHub issue
+    on this repository.
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/joshmans/ca.bulk.unpin/main/icon.svg</Icon>
+  <WebPage>https://github.com/joshmans/ca.bulk.unpin</WebPage>
+  <!-- Optional support links -->
+  <!-- <Forum>https://forums.unraid.net/topic/YOUR_SUPPORT_TOPIC</Forum> -->
+  <!-- <Discord>https://discord.gg/YOUR_INVITE_CODE</Discord> -->
+</CommunityApplications>

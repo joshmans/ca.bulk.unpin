@@ -1,0 +1,249 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "ca.bulk.unpin">
+<!ENTITY author    "joshmans">
+<!ENTITY version   "2026.09.05c">
+<!ENTITY launch    "Apps">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/joshmans/ca.bulk.unpin/main/ca.bulk.unpin.plg">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0">
+
+<CHANGES>
+###2026.09.05c
+- Removed the standalone "Bulk Unpin &amp; Hide Settings" page. It only ever
+  contained a placeholder comment and did nothing, but Menu="Apps" made
+  it show up as its own tab in the Apps navigation next to CA's Home /
+  Installed Apps / Previous Apps - clutter with no function. The plugin
+  works entirely through inject.js; there's nothing to configure.
+
+###2026.09.05b
+- Added support for ghzgod/unraid-modern-appstore as an alternate view.
+  Selectors confirmed via live inspection: cards are .asga-tile, the pin
+  toggle is .asga-btn.asga-pin (pinned = has class asga-pinned), installed
+  apps carry .asga-btn-installed, and the toolbar anchor is #asga-bar.
+  The script now picks the right adapter based on Modern App Store's own
+  #asga-toggle-cb checkbox state, re-syncing when it's flipped.
+- Section tracking (Pinned Apps) is shared across both views since it's
+  driven by CA's own sidebar regardless of which grid is rendering.
+
+###2026.09.05
+- Confirmed the "Installed" indicator via live inspection: cards use
+  .installedCardBackground / .installedCardText. Selector updated from
+  a guess to the verified markup.
+- Fixed section detection: was checking for an unverified 'active'/'selected'
+  class on the nav item; now tracked via the actual sectionMenu click event.
+- Fixed control placement: was appended inside #CategoryLine (at risk of
+  being wiped when CA replaces that element's contents); now inserted as
+  a sibling after it.
+
+###2026.01.04
+- Refactored DOM selectors based on exact CA single-page app structure.
+- Replaced polling with MutationObserver on .mainArea.
+- Added confirm dialog for destructive actions and configurable INSTALLED_INDICATOR_SELECTOR constant.
+</CHANGES>
+
+<FILE Run="/bin/bash">
+<INLINE><![CDATA[
+# Write inject.js file directly into plugin directory
+mkdir -p /usr/local/emhttp/plugins/ca.bulk.unpin
+cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
+(function () {
+    'use strict';
+
+    /* =====================================================================
+     * Two view adapters. CONFIRMED via live devtools inspection on both
+     * stock Community Applications and ghzgod/unraid-modern-appstore.
+     * Section tracking (Pinned Apps) is shared - CA's sidebar/.sectionMenu
+     * click drives it regardless of which grid renderer draws the cards.
+     * ===================================================================== */
+    const STOCK = {
+        name: 'stock',
+        card: '.ca_holder',
+        pinToggle: '.pinPopup',
+        isPinned: (el) => !!el && !el.classList.contains('unpinned'),
+        installed: '.installedCardText, .installedCardBackground',
+        anchor: '#CategoryLine',
+    };
+
+    const MODERN = {
+        name: 'modern',
+        card: '.asga-tile',
+        pinToggle: '.asga-btn.asga-pin',
+        isPinned: (el) => !!el && el.classList.contains('asga-pinned'),
+        installed: '.asga-btn-installed',
+        anchor: '#asga-bar',
+    };
+
+    function currentAdapter() {
+        const modernToggle = document.querySelector('#asga-toggle-cb');
+        if (modernToggle && modernToggle.checked) return MODERN;
+        return STOCK;
+    }
+
+    let hideInstalled = false;
+    let observer = null;
+    let inPinnedSection = false;
+    let renderedFor = null; // which adapter .name the current controls belong to
+
+    function isInstalledCard(card, adapter) {
+        return card.querySelector(adapter.installed) !== null;
+    }
+
+    function isPinnedCard(card, adapter) {
+        return adapter.isPinned(card.querySelector(adapter.pinToggle));
+    }
+
+    function createUIControls(adapter) {
+        if (document.querySelector('#ca-bulk-controls') && renderedFor === adapter.name) return;
+        removeUIControls(); // in case we're switching adapters (view toggled)
+
+        const anchor = document.querySelector(adapter.anchor);
+        if (!anchor) return;
+
+        const controlsWrapper = document.createElement('span');
+        controlsWrapper.id = 'ca-bulk-controls';
+        controlsWrapper.style.cssText = 'margin-left: 15px; display: inline-flex; align-items: center; gap: 12px;';
+
+        const label = document.createElement('label');
+        label.style.cssText = 'cursor: pointer; user-select: none; font-weight: normal;';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = 'toggle-hide-installed';
+        checkbox.checked = hideInstalled;
+        checkbox.style.cssText = 'margin-right: 6px; vertical-align: middle;';
+
+        checkbox.addEventListener('change', (e) => {
+            hideInstalled = e.target.checked;
+            applyHideFilter(currentAdapter());
+        });
+
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode('Hide Installed'));
+
+        const bulkBtn = document.createElement('button');
+        bulkBtn.type = 'button';
+        bulkBtn.id = 'bulk-unpin-btn';
+        bulkBtn.className = 'ca_button';
+        bulkBtn.textContent = 'Unpin Installed Apps';
+        bulkBtn.style.cssText = 'background-color: #d9534f; color: #fff; border: none; padding: 4px 8px; cursor: pointer;';
+
+        bulkBtn.addEventListener('click', () => handleBulkUnpin(currentAdapter()));
+
+        controlsWrapper.appendChild(label);
+        controlsWrapper.appendChild(bulkBtn);
+        // Sibling, not child - avoids getting wiped if the anchor's own
+        // contents get replaced wholesale by CA or Modern App Store.
+        anchor.insertAdjacentElement('afterend', controlsWrapper);
+        renderedFor = adapter.name;
+    }
+
+    function removeUIControls() {
+        const controls = document.querySelector('#ca-bulk-controls');
+        if (controls) controls.remove();
+        renderedFor = null;
+    }
+
+    function applyHideFilter(adapter) {
+        if (!inPinnedSection) return;
+        document.querySelectorAll(adapter.card).forEach((card) => {
+            if (isInstalledCard(card, adapter)) {
+                card.style.display = hideInstalled ? 'none' : '';
+            }
+        });
+    }
+
+    function handleBulkUnpin(adapter) {
+        const targets = [];
+        document.querySelectorAll(adapter.card).forEach((card) => {
+            const pinToggle = card.querySelector(adapter.pinToggle);
+            if (adapter.isPinned(pinToggle) && isInstalledCard(card, adapter)) {
+                targets.push(pinToggle);
+            }
+        });
+
+        if (!targets.length) {
+            alert('No installed pinned apps were found to unpin.');
+            return;
+        }
+
+        if (!confirm(`Unpin ${targets.length} installed app(s)? This cannot be undone in bulk.`)) return;
+
+        targets.forEach((pinToggle) => pinToggle.click());
+        alert(`Unpinned ${targets.length} app(s).`);
+    }
+
+    function syncState() {
+        const adapter = currentAdapter();
+        if (inPinnedSection) {
+            createUIControls(adapter);
+            applyHideFilter(adapter);
+        } else {
+            removeUIControls();
+        }
+    }
+
+    function initObserver() {
+        const targetNode = document.querySelector('.mainArea') || document.body;
+
+        observer = new MutationObserver(syncState);
+        observer.observe(targetNode, { childList: true, subtree: true });
+
+        // CONFIRMED: CA's sidebar fires this click regardless of which grid
+        // renderer (stock or Modern App Store) is currently drawing cards.
+        document.body.addEventListener('click', (e) => {
+            const sectionNav = e.target.closest('.sectionMenu');
+            if (sectionNav) {
+                inPinnedSection = sectionNav.getAttribute('data-category') === 'pinned_apps';
+                syncState();
+                return;
+            }
+            if (e.target.closest('.categoryMenu, .caMenuItem')) {
+                inPinnedSection = false;
+                syncState();
+            }
+        });
+
+        // Re-sync immediately when Modern App Store's own view toggle flips,
+        // since that swaps the entire adapter (selectors + anchor) in place.
+        document.body.addEventListener('change', (e) => {
+            if (e.target && e.target.id === 'asga-toggle-cb') {
+                syncState();
+            }
+        });
+
+        syncState();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initObserver);
+    } else {
+        initObserver();
+    }
+})();
+EOF
+
+# Inject JS script tag reference into CA's main view page
+if ! grep -q "ca.bulk.unpin/inject.js" /usr/local/emhttp/plugins/community.applications/Apps.page 2>/dev/null; then
+    echo '<script src="/plugins/ca.bulk.unpin/inject.js"></script>' >> /usr/local/emhttp/plugins/community.applications/Apps.page
+fi
+
+echo "----------------------------------------------------"
+echo " ca.bulk.unpin has been successfully installed."
+echo "----------------------------------------------------"
+]]></INLINE>
+</FILE>
+
+<!-- Removal script -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE><![CDATA[
+sed -i '/ca.bulk.unpin\/inject.js/d' /usr/local/emhttp/plugins/community.applications/Apps.page 2>/dev/null
+rm -rf /usr/local/emhttp/plugins/ca.bulk.unpin
+echo "----------------------------------------------------"
+echo " ca.bulk.unpin has been uninstalled."
+echo "----------------------------------------------------"
+]]></INLINE>
+</FILE>
+
+</PLUGIN>
