@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "ca.bulk.unpin">
 <!ENTITY author    "joshmans">
-<!ENTITY version   "2026.09.05d">
+<!ENTITY version   "2026.09.05f">
 <!ENTITY launch    "Apps">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/joshmans/ca.bulk.unpin/main/ca.bulk.unpin.plg">
 ]>
@@ -10,6 +10,22 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0">
 
 <CHANGES>
+###2026.09.05f
+- Moved the controls to a better anchor: #asga-bar, Modern App Store's own
+  toolbar (search box, sort, view toggle), confirmed to persist across
+  both stock and Modern views. Sits as an inline item next to the existing
+  toolbar controls instead of as a block above the card grid.
+- The previous grid-derived anchor is kept only as a fallback for installs
+  without Modern App Store, where no shared toolbar exists to use.
+
+###2026.09.05e
+- Fixed UX bug seen on a real install: the controls bar was an inline span
+  that got pulled into the card grid's own CSS Grid/Flexbox sizing rules,
+  causing it to overlap the first card instead of sitting above the grid.
+  Rebuilt as a block-level bar with grid-column/flex-basis overrides so it
+  always spans the full row regardless of the parent's layout model, plus
+  a background and padding so it reads as a toolbar rather than debris.
+
 ###2026.09.05d
 - Fixed stock-view breakage found on a real running install: this build of
   Community Applications no longer has #CategoryLine at all, and the pin
@@ -76,15 +92,6 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         // markup this replaced).
         isPinned: (el) => !!el,
         installed: '.installedCardText, .installedCardBackground',
-        // No stable named anchor exists on this build (#CategoryLine is
-        // gone). Derive the anchor from the card grid itself instead of a
-        // hardcoded ID, so a future CA rebuild renaming unrelated elements
-        // can't silently break this again.
-        resolveAnchor() {
-            const firstCard = document.querySelector(this.card);
-            return firstCard ? firstCard.parentElement : null;
-        },
-        anchorPosition: 'beforebegin', // insert directly above the card grid
     };
 
     const MODERN = {
@@ -93,11 +100,24 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         pinToggle: '.asga-btn.asga-pin',
         isPinned: (el) => !!el && el.classList.contains('asga-pinned'),
         installed: '.asga-btn-installed',
-        resolveAnchor() {
-            return document.querySelector('#asga-bar');
-        },
-        anchorPosition: 'afterend',
     };
+
+    // CONFIRMED: #asga-bar is Modern App Store's own toolbar (search box,
+    // sort dropdown, view toggle) and persists across BOTH the stock and
+    // Modern grid views - it lives outside the card grid entirely, so
+    // anchoring here avoids the grid-layout overlap bug from the previous
+    // fix. Falls back to a grid-derived anchor only if Modern App Store
+    // isn't installed at all (so #asga-bar never exists).
+    function resolveAnchor(adapter) {
+        const toolbar = document.querySelector('#asga-bar');
+        if (toolbar) return { node: toolbar, position: 'afterend', layout: 'toolbar' };
+
+        const firstCard = document.querySelector(adapter.card);
+        if (firstCard && firstCard.parentElement) {
+            return { node: firstCard.parentElement, position: 'beforebegin', layout: 'block' };
+        }
+        return null;
+    }
 
     function currentAdapter() {
         const modernToggle = document.querySelector('#asga-toggle-cb');
@@ -122,21 +142,52 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         if (document.querySelector('#ca-bulk-controls') && renderedFor === adapter.name) return;
         removeUIControls(); // in case we're switching adapters (view toggled)
 
-        const anchor = adapter.resolveAnchor();
-        if (!anchor) return;
+        const anchorInfo = resolveAnchor(adapter);
+        if (!anchorInfo) return;
 
-        const controlsWrapper = document.createElement('span');
+        const controlsWrapper = document.createElement(anchorInfo.layout === 'toolbar' ? 'span' : 'div');
         controlsWrapper.id = 'ca-bulk-controls';
-        controlsWrapper.style.cssText = 'margin-left: 15px; display: inline-flex; align-items: center; gap: 12px;';
+
+        if (anchorInfo.layout === 'toolbar') {
+            // Sitting inline in the real toolbar alongside search/sort/toggle -
+            // no need to force full width here, that toolbar already lays
+            // its children out horizontally.
+            controlsWrapper.style.cssText = [
+                'display: inline-flex',
+                'align-items: center',
+                'gap: 12px',
+                'margin-left: 16px',
+                'white-space: nowrap',
+            ].join(';');
+        } else {
+            // Fallback context: sibling of the card grid itself, which needs
+            // to escape the grid's own CSS Grid/Flexbox sizing rules or it
+            // gets squeezed into a single cell and overlaps the first card.
+            controlsWrapper.style.cssText = [
+                'display: flex',
+                'align-items: center',
+                'gap: 16px',
+                'width: 100%',
+                'grid-column: 1 / -1',
+                'flex-basis: 100%',
+                'box-sizing: border-box',
+                'margin: 4px 0 14px 0',
+                'padding: 8px 12px',
+                'background: rgba(0, 0, 0, 0.35)',
+                'border-radius: 6px',
+                'position: relative',
+                'z-index: 2',
+            ].join(';');
+        }
 
         const label = document.createElement('label');
-        label.style.cssText = 'cursor: pointer; user-select: none; font-weight: normal;';
+        label.style.cssText = 'display: inline-flex; align-items: center; cursor: pointer; user-select: none; font-weight: normal; white-space: nowrap;';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = 'toggle-hide-installed';
         checkbox.checked = hideInstalled;
-        checkbox.style.cssText = 'margin-right: 6px; vertical-align: middle;';
+        checkbox.style.cssText = 'margin-right: 6px;';
 
         checkbox.addEventListener('change', (e) => {
             hideInstalled = e.target.checked;
@@ -151,7 +202,7 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         bulkBtn.id = 'bulk-unpin-btn';
         bulkBtn.className = 'ca_button';
         bulkBtn.textContent = 'Unpin Installed Apps';
-        bulkBtn.style.cssText = 'background-color: #d9534f; color: #fff; border: none; padding: 4px 8px; cursor: pointer;';
+        bulkBtn.style.cssText = 'background-color: #d9534f; color: #fff; border: none; padding: 6px 12px; cursor: pointer; white-space: nowrap; text-transform: none; border-radius: 4px; flex-shrink: 0;';
 
         bulkBtn.addEventListener('click', () => handleBulkUnpin(currentAdapter()));
 
@@ -159,7 +210,7 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         controlsWrapper.appendChild(bulkBtn);
         // Sibling, never a child - avoids getting wiped if the anchor's
         // own contents get replaced wholesale by CA or Modern App Store.
-        anchor.insertAdjacentElement(adapter.anchorPosition, controlsWrapper);
+        anchorInfo.node.insertAdjacentElement(anchorInfo.position, controlsWrapper);
         renderedFor = adapter.name;
     }
 
