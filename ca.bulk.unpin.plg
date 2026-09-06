@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "ca.bulk.unpin">
 <!ENTITY author    "joshmans">
-<!ENTITY version   "2026.09.05c">
+<!ENTITY version   "2026.09.05d">
 <!ENTITY launch    "Apps">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/joshmans/ca.bulk.unpin/main/ca.bulk.unpin.plg">
 ]>
@@ -10,6 +10,16 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0">
 
 <CHANGES>
+###2026.09.05d
+- Fixed stock-view breakage found on a real running install: this build of
+  Community Applications no longer has #CategoryLine at all, and the pin
+  toggle is now .pinnedCard (presence = pinned) rather than .pinPopup with
+  an "unpinned" class. Confirmed via live devtools inspection.
+- Replaced the hardcoded-ID anchor with a self-deriving one: controls are
+  now anchored to the card grid's own parent (found via the confirmed
+  .ca_holder selector) instead of a named element that can disappear in a
+  future CA rebuild without warning.
+
 ###2026.09.05c
 - Removed the standalone "Bulk Unpin &amp; Hide Settings" page. It only ever
   contained a placeholder comment and did nothing, but Menu="Apps" made
@@ -60,10 +70,21 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
     const STOCK = {
         name: 'stock',
         card: '.ca_holder',
-        pinToggle: '.pinPopup',
-        isPinned: (el) => !!el && !el.classList.contains('unpinned'),
+        pinToggle: '.pinnedCard',
+        // Presence of .pinnedCard IS the pinned signal on this build - no
+        // separate "unpinned" class to check (unlike the older .pinPopup
+        // markup this replaced).
+        isPinned: (el) => !!el,
         installed: '.installedCardText, .installedCardBackground',
-        anchor: '#CategoryLine',
+        // No stable named anchor exists on this build (#CategoryLine is
+        // gone). Derive the anchor from the card grid itself instead of a
+        // hardcoded ID, so a future CA rebuild renaming unrelated elements
+        // can't silently break this again.
+        resolveAnchor() {
+            const firstCard = document.querySelector(this.card);
+            return firstCard ? firstCard.parentElement : null;
+        },
+        anchorPosition: 'beforebegin', // insert directly above the card grid
     };
 
     const MODERN = {
@@ -72,7 +93,10 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         pinToggle: '.asga-btn.asga-pin',
         isPinned: (el) => !!el && el.classList.contains('asga-pinned'),
         installed: '.asga-btn-installed',
-        anchor: '#asga-bar',
+        resolveAnchor() {
+            return document.querySelector('#asga-bar');
+        },
+        anchorPosition: 'afterend',
     };
 
     function currentAdapter() {
@@ -98,7 +122,7 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
         if (document.querySelector('#ca-bulk-controls') && renderedFor === adapter.name) return;
         removeUIControls(); // in case we're switching adapters (view toggled)
 
-        const anchor = document.querySelector(adapter.anchor);
+        const anchor = adapter.resolveAnchor();
         if (!anchor) return;
 
         const controlsWrapper = document.createElement('span');
@@ -133,9 +157,9 @@ cat << 'EOF' > /usr/local/emhttp/plugins/ca.bulk.unpin/inject.js
 
         controlsWrapper.appendChild(label);
         controlsWrapper.appendChild(bulkBtn);
-        // Sibling, not child - avoids getting wiped if the anchor's own
-        // contents get replaced wholesale by CA or Modern App Store.
-        anchor.insertAdjacentElement('afterend', controlsWrapper);
+        // Sibling, never a child - avoids getting wiped if the anchor's
+        // own contents get replaced wholesale by CA or Modern App Store.
+        anchor.insertAdjacentElement(adapter.anchorPosition, controlsWrapper);
         renderedFor = adapter.name;
     }
 
