@@ -2,14 +2,17 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "ca.bulk.unpin">
 <!ENTITY author    "joshmans">
-<!ENTITY version   "2026.09.05f">
+<!ENTITY version   "2026.09.25">
 <!ENTITY launch    "Apps">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/joshmans/ca.bulk.unpin/main/ca.bulk.unpin.plg">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.9.0">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="thumb-tack" min="6.9.0">
 
 <CHANGES>
+###2026.09.25
+- The Plugins page now shows a push-pin icon for this plugin. No other change.
+
 ###2026.09.05f
 - Moved the controls to a better anchor: #asga-bar, Modern App Store's own
   toolbar (search box, sort, view toggle), confirmed to persist across
