@@ -1,0 +1,23 @@
+# Releases are made by bumping the plugin's version entity and adding a "###<version>"
+# block at the top of its <CHANGES>, in a PR. The shared workflow (joshmans/unraid-tools)
+# checks the plugin file and creates the GitHub release from that block.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: joshmans/unraid-tools/.github/workflows/plg-release.yml@main
+    with:
+      plg: ca.bulk.unpin.plg
+      publish: ${{ github.event_name != 'pull_request' }}
